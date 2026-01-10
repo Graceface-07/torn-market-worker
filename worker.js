@@ -4,36 +4,22 @@ export default {
     const path = url.pathname;
     const { searchParams } = url;
 
-    // -----------------------------
-    // CONFIG
-    // -----------------------------
-
-    // Torn API keys for rotation
     const TORN_KEYS = [
-      "gc43XVxOpCcwLnY6",
-      "rKP5EwA6DmSufqEm",
-      "8YgzsJntLW3yTboP",
-      "fiwzsFpv7BuGuTH3",
-      "3grddfsZEZsTlWBp",
-      "RQmyHvIAIuJ2iCZX",
-      "rwLgZTyqgWDxhoCx",
-      "CZP2D2ZnbXWsYiDT",
-      "5zgirNZtPxRdeFFL",
-      "C9cgPgQFpGzA6n32",
-      "sUMyDEhMUi3kNgY7",
-      "UO429efUvPIQW5Zq"
+      "gc43XVxOpCcwLnY6","rKP5EwA6DmSufqEm","8YgzsJntLW3yTboP",
+      "fiwzsFpv7BuGuTH3","3grddfsZEZsTlWBp","RQmyHvIAIuJ2iCZX",
+      "rwLgZTyqgWDxhoCx","CZP2D2ZnbXWsYiDT","5zgirNZtPxRdeFFL",
+      "C9cgPgQFpGzA6n32","sUMyDEhMUi3kNgY7","UO429efUvPIQW5Zq"
     ];
 
-    // TS / YATA key from secret
     const TS_KEY = env.API_KEY;
-
-    // KV binding (namespace: key_rotator, binding: ROTATOR)
     const KV = env.ROTATOR;
 
-    // Google Apps Script webhook
-    // IMPORTANT: replace YOUR_GOOGLE_KEY with the exact key your script checks.
+    // MUST MATCH WEBHOOK_SECRET in Code.gs
+    const WEBHOOK_SECRET = "REPLACE_ME_WITH_SHEET_KEY";
+
     const WEBHOOK_URL =
-      "https://script.google.com/macros/s/AKfycbzGbzT36ppGFG3bkNBeYYkd0lrO73Jk-wySf5hdiNoHlHy0XBY_0SPbpJCfYcSNwYPUDg/exec?key=YOUR_GOOGLE_KEY";
+      "https://script.google.com/macros/s/AKfycbzGbzT36ppGFG3bkNBeYYkd0lrO73Jk-wySf5hdiNoHlHy0XBY_0SPbpJCfYcSNwYPUDg/exec"
+      + "?key=" + encodeURIComponent(WEBHOOK_SECRET);
 
     const headers = {
       "Content-Type": "application/json",
@@ -46,207 +32,118 @@ export default {
       return new Response(null, { headers });
     }
 
-    // -----------------------------
-    // TORN KEY ROTATION + FETCH
-    // -----------------------------
-
-    async function getCurrentIndex() {
-      try {
-        const stored = await KV.get("current_torn_index");
-        const idx = stored !== null ? parseInt(stored, 10) : 0;
-        if (Number.isNaN(idx) || idx < 0 || idx >= TORN_KEYS.length) return 0;
-        return idx;
-      } catch {
-        return 0;
-      }
+    async function getIndex() {
+      const v = await KV.get("idx");
+      const i = v ? parseInt(v, 10) : 0;
+      return Number.isNaN(i) ? 0 : i;
     }
 
-    async function setCurrentIndex(idx) {
-      try {
-        await KV.put("current_torn_index", String(idx));
-      } catch {
-        // best effort
-      }
+    async function setIndex(i) {
+      await KV.put("idx", String(i));
     }
 
-    async function tryTornKey(key, factionId) {
-      const res = await fetch(
+    async function tryKey(key, factionId) {
+      const r = await fetch(
         `https://api.torn.com/faction/${factionId}?selections=basic&key=${key}`
       );
+      const s = r.status;
+      const t = await r.text();
 
-      const status = res.status;
-      const text = await res.text();
-
-      if (status === 429) {
-        throw new Error("RATE_LIMIT");
-      }
-      if (!text || text.includes("<")) {
-        throw new Error("HTML_OR_INVALID");
-      }
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error("BAD_JSON");
-      }
-
-      if (data && data.error) {
-        throw new Error("TORN_ERROR");
-      }
-
-      return data;
+      if (s === 429) throw "RATE";
+      if (!t || t.includes("<")) throw "BAD";
+      let j;
+      try { j = JSON.parse(t); } catch { throw "JSON"; }
+      if (j.error) throw "ERR";
+      return j;
     }
 
-    async function fetchTornFactionWithRotation(factionId) {
+    async function fetchTorn(factionId) {
       const total = TORN_KEYS.length;
-      if (total === 0) {
-        throw new Error("NO_KEYS");
-      }
+      let idx = await getIndex();
+      if (idx < 0 || idx >= total) idx = 0;
 
-      let startIndex = await getCurrentIndex();
-      if (startIndex < 0 || startIndex >= total) startIndex = 0;
-
-      let lastError = null;
-
+      let last = null;
       for (let i = 0; i < total; i++) {
-        const idx = (startIndex + i) % total;
-        const key = TORN_KEYS[idx];
-
+        const k = TORN_KEYS[(idx + i) % total];
         try {
-          const data = await tryTornKey(key, factionId);
-          await setCurrentIndex(idx);
-          return { data, keyIndex: idx };
+          const d = await tryKey(k, factionId);
+          await setIndex((idx + i) % total);
+          return d;
         } catch (e) {
-          lastError = e;
-          continue;
+          last = e;
         }
       }
-
-      throw lastError || new Error("ALL_KEYS_FAILED");
+      throw last || "FAIL";
     }
 
-    // -----------------------------
-    // TS / YATA FETCH
-    // -----------------------------
-
-    async function fetchTsFaction(factionId) {
-      if (!TS_KEY) {
-        return { members: {} };
-      }
-
+    async function fetchTS(factionId) {
+      if (!TS_KEY) return { members: {} };
       try {
-        const res = await fetch(
+        const r = await fetch(
           `https://yata.yt/api/v1/faction/export/${factionId}/?key=${TS_KEY}`
         );
-        const text = await res.text();
-
-        if (!text || text.includes("<") || !text.trim().startsWith("{")) {
+        const t = await r.text();
+        if (!t || t.includes("<") || !t.trim().startsWith("{"))
           return { members: {} };
-        }
-
-        const data = JSON.parse(text);
-        return data;
+        return JSON.parse(t);
       } catch {
         return { members: {} };
       }
     }
 
-    // -----------------------------
-    // EVENT → GOOGLE SHEET MODULE
-    // -----------------------------
-
     async function sendToSheet(payload) {
-      const res = await fetch(WEBHOOK_URL, {
+      const r = await fetch(WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+      const t = await r.text();
+      return { ok: r.ok, status: r.status, response: t };
+    }
 
-      const text = await res.text();
-
+    function parseEvent(body) {
       return {
-        ok: res.ok,
-        status: res.status,
-        response: text
-      };
-    }
-
-    async function processEvent(rawBody) {
-      // Pass-through + server timestamp. Sheet can decide what to do.
-      const payload = {
         ts: Date.now(),
-        ...rawBody
+        type: body.type || "",
+        item: body.item || "",
+        price: Number(body.price || 0),
+        qty: Number(body.qty || 1),
+        side: body.side || ""
       };
-
-      return await sendToSheet(payload);
     }
 
-    // -----------------------------
-    // ROUTING
-    // -----------------------------
-
-    // /event  -> generic event → sheet
     if (path === "/event" && request.method === "POST") {
       try {
         const body = await request.json();
-
-        // Minimal validation: must at least be an object
-        if (!body || typeof body !== "object") {
-          return new Response(
-            JSON.stringify({ error: "Body must be a JSON object" }),
-            { status: 400, headers }
-          );
-        }
-
-        const result = await processEvent(body);
-        return new Response(JSON.stringify(result), { status: 200, headers });
+        const tx = parseEvent(body);
+        const res = await sendToSheet(tx);
+        return new Response(JSON.stringify(res), { headers });
       } catch (e) {
         return new Response(
-          JSON.stringify({ error: "Invalid JSON body", details: e.message }),
+          JSON.stringify({ error: "BAD_BODY", details: String(e) }),
           { status: 400, headers }
         );
       }
     }
 
-    // /torn?id=FACTION_ID  -> Torn + TS merge
     if (path === "/torn") {
       const factionId = searchParams.get("id");
-
-      if (!factionId) {
-        return new Response(JSON.stringify({ error: "No faction ID provided" }), {
-          status: 400,
-          headers
+      if (!factionId)
+        return new Response(JSON.stringify({ error: "NO_ID" }), {
+          status: 400, headers
         });
-      }
 
       try {
-        const tornResult = await fetchTornFactionWithRotation(factionId);
-        const tornData = tornResult.data;
-        const tsData = await fetchTsFaction(factionId);
-
-        return new Response(
-          JSON.stringify({
-            torn: tornData,
-            ts: tsData
-          }),
-          { status: 200, headers }
-        );
+        const torn = await fetchTorn(factionId);
+        const ts = await fetchTS(factionId);
+        return new Response(JSON.stringify({ torn, ts }), { headers });
       } catch (e) {
-        return new Response(
-          JSON.stringify({
-            error: "Torn fetch failed",
-            details: e.message || String(e)
-          }),
-          { status: 502, headers }
-        );
+        return new Response(JSON.stringify({ error: "FAIL", details: e }), {
+          status: 502, headers
+        });
       }
     }
 
-    // Default health/status
-    return new Response(JSON.stringify({ status: "OK" }), {
-      status: 200,
-      headers
-    });
+    return new Response(JSON.stringify({ status: "OK" }), { headers });
   }
 };
