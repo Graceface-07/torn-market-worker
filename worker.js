@@ -30,4 +30,3 @@ export {
   worker_default as default
 };
 //# sourceMappingURL=worker.js.map
-S

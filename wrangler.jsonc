@@ -1,8 +1,22 @@
 {
-  "name": "torn-market-worker",
-  "main": "worker.js",
-  "compatibility_date": "2026-01-09",
-  "observability": {
-    "enabled": true
-  }
+	"name": "torn-market-worker",
+	"main": "worker.js",
+	"compatibility_date": "2025-01-01",
+	"observability": {
+		"enabled": false,
+		"logs": {
+			"enabled": false
+		}
+	},
+	"triggers": {
+		"crons": [
+			"*/15 * * * *"
+		]
+	},
+	"kv_namespaces": [
+		{
+			"id": "7d26ddc573674ba19db3af3951322bf7",
+			"binding": "ROTATOR"
+		}
+	]
 }
