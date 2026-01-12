@@ -15,10 +15,10 @@ export default {
     const KV = env.ROTATOR;
 
     // MUST MATCH Apps Script WEBHOOK_SECRET
-    const WEBHOOK_SECRET = "https://script.google.com/macros/s/AKfycbwEC3A1wmJMyPH7LEgeFbpOorSd9mH5hK5RpVJLxxa4cBGa-1vVSAh61llDQ51TXBOC/exec";
+    const WEBHOOK_SECRET = "RICHARD_SECRET_123";
 
     const WEBHOOK_URL =
-      "https://script.google.com/macros/s/AKfycbzGbzT36ppGFG3bkNBeYYkd0lrO73Jk-wySf5hdiNoHlHy0XBY_0SPbpJCfYcSNwYPUDg/exec"
+          "https://script.google.com/macros/s/AKfycbxOoy7DQOSUj4XflFO1k0ZfF2oJPRlmqRQISSYGzaVKTEG4VQqOFWwZ6_g8TRr_A6XE/exec"
       + "?key=" + encodeURIComponent(WEBHOOK_SECRET);
 
     const headers = {
