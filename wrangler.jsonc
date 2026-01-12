@@ -1,5 +1,6 @@
 {
-	"name": "torn-market-worker",
+	// wrangler.jsonc
+"name": "torn-market-worker1",
 	"main": "worker.js",
 	"compatibility_date": "2025-01-01",
 	"observability": {
@@ -8,15 +9,9 @@
 			"enabled": false
 		}
 	},
-	"triggers": {
-		"crons": [
-			"*/15 * * * *"
-		]
-	},
-	"kv_namespaces": [
-		{
-			"id": "7d26ddc573674ba19db3af3951322bf7",
-			"binding": "ROTATOR"
+		"triggers": {
+			"crons": [
+				"*/15 * * * *"
+			]
 		}
-	]
-}
+	}
