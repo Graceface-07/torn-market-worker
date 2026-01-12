@@ -1,18 +1,11 @@
 {
-	// wrangler.jsonc
-// wrangler.jsonc
-"name": "torn-market-worker",
-	"main": "worker.js",
-	"compatibility_date": "2025-01-01",
-	"observability": {
-		"enabled": false,
-		"logs": {
-			"enabled": false
-		}
-	},
-		"triggers": {
-			"crons": [
-				"*/15 * * * *"
-			]
-		}
-	}
+  "name": "torn-market-worker",
+  "main": "worker.js",
+  "compatibility_date": "2025-01-01",
+  "observability": {
+    "enabled": false,
+    "logs": {
+      "enabled": false
+    }
+  }
+}
