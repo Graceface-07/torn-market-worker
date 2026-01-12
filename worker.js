@@ -17,6 +17,7 @@ export default {
     // MUST MATCH Apps Script WEBHOOK_SECRET
     const WEBHOOK_SECRET = "RICHARD_SECRET_123";
 
+    // UPDATED WEBHOOK URL
     const WEBHOOK_URL =
           "https://script.google.com/macros/s/AKfycbzq66GAz2wKeySUopH44eVcEtQwfi2fhYKRXsppxKQLeh8vIv7FfSvZSbRCwlT1_WcE/exec"
       + "?key=" + encodeURIComponent(WEBHOOK_SECRET);
@@ -101,10 +102,11 @@ export default {
       return { ok: r.ok, status: r.status, response: t };
     }
 
+    // UPDATED PARSE EVENT TO CAPTURE TYPE FOR ROUTING
     function parseEvent(body) {
       return {
         ts: Date.now(),
-        type: body.type || "",
+        type: body.type || "buy", // Routes to PurchasesHistory by default
         item: body.item || "",
         price: Number(body.price || 0),
         qty: Number(body.qty || 1),
