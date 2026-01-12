@@ -18,7 +18,7 @@ export default {
     const WEBHOOK_SECRET = "RICHARD_SECRET_123";
 
     const WEBHOOK_URL =
-          "https://script.google.com/macros/s/AKfycbxOoy7DQOSUj4XflFO1k0ZfF2oJPRlmqRQISSYGzaVKTEG4VQqOFWwZ6_g8TRr_A6XE/exec"
+          "https://script.google.com/macros/s/AKfycbzq66GAz2wKeySUopH44eVcEtQwfi2fhYKRXsppxKQLeh8vIv7FfSvZSbRCwlT1_WcE/exec"
       + "?key=" + encodeURIComponent(WEBHOOK_SECRET);
 
     const headers = {
