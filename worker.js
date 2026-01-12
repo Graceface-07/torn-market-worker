@@ -15,7 +15,7 @@ export default {
     const KV = env.ROTATOR;
 
     // MUST MATCH Apps Script WEBHOOK_SECRET
-    const WEBHOOK_SECRET = "REPLACE_ME_WITH_SHEET_KEY";
+    const WEBHOOK_SECRET = "https://script.google.com/macros/s/AKfycbwEC3A1wmJMyPH7LEgeFbpOorSd9mH5hK5RpVJLxxa4cBGa-1vVSAh61llDQ51TXBOC/exec";
 
     const WEBHOOK_URL =
       "https://script.google.com/macros/s/AKfycbzGbzT36ppGFG3bkNBeYYkd0lrO73Jk-wySf5hdiNoHlHy0XBY_0SPbpJCfYcSNwYPUDg/exec"
