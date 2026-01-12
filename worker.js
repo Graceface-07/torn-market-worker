@@ -14,7 +14,7 @@ export default {
     const TS_KEY = env.API_KEY;
     const KV = env.ROTATOR;
 
-    // MUST MATCH WEBHOOK_SECRET in Code.gs
+    // MUST MATCH Apps Script WEBHOOK_SECRET
     const WEBHOOK_SECRET = "REPLACE_ME_WITH_SHEET_KEY";
 
     const WEBHOOK_URL =
