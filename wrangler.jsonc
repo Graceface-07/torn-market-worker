@@ -1,6 +1,7 @@
 {
 	// wrangler.jsonc
-"name": "torn-market-worker1",
+// wrangler.jsonc
+"name": "torn-market-worker",
 	"main": "worker.js",
 	"compatibility_date": "2025-01-01",
 	"observability": {
