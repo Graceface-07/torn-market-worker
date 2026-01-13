@@ -1,0 +1,11 @@
+{
+  "name": "torn-market-worker",
+  "main": "worker.js",
+  "compatibility_date": "2025-01-01",
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true
+    }
+  }
+}
