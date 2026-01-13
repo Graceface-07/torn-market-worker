@@ -1,6 +1,5 @@
 /**
- * TORN MARKET WORKER - BATCHED & ROTATING
- * Bypasses Cloudflare Free Tier "50 subrequest" limit.
+ * TORN MARKET WORKER - BATCHED & ROTATING (FIXED)
  */
 
 export default {
@@ -8,78 +7,58 @@ export default {
     return {
       WEBHOOK_SECRET: "RICHARD_SECRET_123",
       BASE_URL: "https://script.google.com/macros/s/AKfycbzq66GAz2wKeySUopH44eVcEtQwfi2fhYKRXsppxKQLeh8vIv7FfSvZSbRCwlT1_WcE/exec",
-      TORN_KEYS: [
-        "gc43XVxOpCcwLnY6", "rKP5EwA6DmSufqEm", "8YgzsJntLW3yTboP",
-        "fiwzsFpv7BuGuTH3", "3grddfsZEZsTlWBp", "RQmyHvIAIuJ2iCZX"
-      ]
+      TORN_KEYS: ["gc43XVxOpCcwLnY6", "rKP5EwA6DmSufqEm", "8YgzsJntLW3yTboP", "fiwzsFpv7BuGuTH3", "3grddfsZEZsTlWBp", "RQmyHvIAIuJ2iCZX"]
     };
   },
 
   async fetch(request, env) {
     const settings = await this.getSettings();
     const FULL_WEBHOOK = settings.BASE_URL + "?key=" + encodeURIComponent(settings.WEBHOOK_SECRET);
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "*",
-      "Content-Type": "application/json"
-    };
-
+    const corsHeaders = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-    if (request.method === "GET") return new Response(JSON.stringify({ status: "Active" }), { headers: corsHeaders });
-
     try {
       const body = await request.json();
-      const res = await fetch(FULL_WEBHOOK, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      const result = await res.text();
-      return new Response(JSON.stringify({ ok: res.ok, google_response: result }), { headers: corsHeaders });
-    } catch (e) {
-      return new Response(JSON.stringify({ error: "Fail", detail: e.toString() }), { status: 400, headers: corsHeaders });
-    }
+      const res = await fetch(FULL_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      return new Response(await res.text(), { headers: corsHeaders });
+    } catch (e) { return new Response(e.toString(), { status: 400 }); }
   },
 
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(this.runAutomatedSnapshot());
-  },
+  async scheduled(event, env, ctx) { ctx.waitUntil(this.runAutomatedSnapshot()); },
 
   async runAutomatedSnapshot() {
     const settings = await this.getSettings();
     const FULL_WEBHOOK = settings.BASE_URL + "?key=" + encodeURIComponent(settings.WEBHOOK_SECRET);
     
     try {
-      // 1. Get Universe
       const universeRes = await fetch(FULL_WEBHOOK + "&action=getUniverse");
       const includedIds = await universeRes.json();
       if (!Array.isArray(includedIds) || includedIds.length === 0) return;
 
-      // 2. ROTATION LOGIC: Pick a batch based on the current time
-      // This ensures we rotate through all 240 items over 5-6 runs.
       const batchSize = 45;
       const totalItems = includedIds.length;
-      const now = new Date();
-      const minute = now.getMinutes(); 
-      // Calculate start index based on 15-min intervals (0, 15, 30, 45)
-      const intervalIndex = Math.floor(minute / 15); 
+      const intervalIndex = Math.floor(new Date().getMinutes() / 15); 
       const startIndex = (intervalIndex * batchSize) % totalItems;
       const batch = includedIds.slice(startIndex, startIndex + batchSize);
 
-      console.log(`Interval: ${minute}m | Index: ${startIndex} | Processing: ${batch.length} items`);
+      console.log(`Interval Index: ${intervalIndex} | Start Index: ${startIndex} | Processing: ${batch.length} items`);
 
       const allData = [];
 
-      // 3. Fetch from Torn
       for (const itemId of batch) {
         const key = settings.TORN_KEYS[Math.floor(Math.random() * settings.TORN_KEYS.length)];
         const tornRes = await fetch(`https://api.torn.com/market/${itemId}?selections=itemmarket&key=${key}`);
         const tornData = await tornRes.json();
 
-        if (tornData.itemmarket && tornData.itemmarket[0]) {
+        // LOG ERROR IF TORN FAILS
+        if (tornData.error) {
+          console.log(`Torn Error for ${itemId}: ${tornData.error.error}`);
+          continue;
+        }
+
+        if (tornData.itemmarket && tornData.itemmarket.length > 0) {
           const topItem = tornData.itemmarket[0];
           allData.push({
+            type: "market",
             itemId: itemId,
             price: topItem.cost,
             qty: topItem.quantity,
@@ -92,20 +71,20 @@ export default {
             rarity: topItem.rarity || "None"
           });
         }
+        // Small 50ms delay to keep the socket alive
+        await new Promise(r => setTimeout(r, 50));
       }
 
-      // 4. Send BATCH to Google (1 request total)
       if (allData.length > 0) {
-        await fetch(FULL_WEBHOOK, {
+        const gRes = await fetch(FULL_WEBHOOK, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: "market", rows: allData })
         });
+        console.log(`Successfully sent ${allData.length} items to Google. Response: ${await gRes.text()}`);
+      } else {
+        console.log("No market data found for this batch. Check your API Keys.");
       }
-      
-      console.log(`Successfully sent ${allData.length} items to Google.`);
-    } catch (err) {
-      console.error("Cron Error:", err.toString());
-    }
+    } catch (err) { console.error("Cron Error:", err.toString()); }
   }
 };
