@@ -22,23 +22,43 @@ export default {
     try {
       const universeRes = await fetch(FULL_WEBHOOK + "&action=getUniverse");
       const includedIds = await universeRes.json();
-      if (!Array.isArray(includedIds) || includedIds.length === 0) return { error: "No IDs found from Google" };
+      if (!Array.isArray(includedIds) || includedIds.length === 0) return { error: "No IDs found" };
 
-      // Testing just the first 5 items to keep it fast
-      const batch = includedIds.slice(0, 5); 
+      // Batching for performance
+      const batchSize = 45;
+      const intervalIndex = Math.floor(new Date().getMinutes() / 15); 
+      const startIndex = (intervalIndex * batchSize) % includedIds.length;
+      const batch = includedIds.slice(startIndex, startIndex + batchSize);
+
       const allData = [];
 
       for (const itemId of batch) {
         const key = settings.TORN_KEYS[Math.floor(Math.random() * settings.TORN_KEYS.length)];
-        const tornRes = await fetch(`https://api.torn.com/market/${itemId}?selections=itemmarket&key=${key}`);
+        
+        // SWITCHED TO API V2 SYNTAX
+        const tornRes = await fetch(`https://api.torn.com/v2/market/?selections=itemmarket&id=${itemId}&key=${key}`);
         const tornData = await tornRes.json();
 
         if (tornData.error) {
-          debugLog.push({ itemId, key: key.substring(0,4) + "...", error: tornData.error });
-        } else if (tornData.itemmarket && tornData.itemmarket.length > 0) {
-          allData.push({ itemId, price: tornData.itemmarket[0].cost });
-        } else {
-          debugLog.push({ itemId, info: "No market listings found" });
+          debugLog.push({ itemId, error: tornData.error.error });
+          continue;
+        }
+
+        // v2 structure is slightly different: tornData.itemmarket.listings
+        if (tornData.itemmarket && tornData.itemmarket.listings && tornData.itemmarket.listings.length > 0) {
+          const topItem = tornData.itemmarket.listings[0];
+          allData.push({
+            type: "market",
+            itemId: itemId,
+            price: topItem.price, // v2 uses .price instead of .cost
+            qty: topItem.quantity,
+            uid: topItem.ID || "",
+            damage: topItem.damage || 0,
+            accuracy: topItem.accuracy || 0,
+            armor: topItem.armor || 0,
+            quality: topItem.quality || 0,
+            rarity: topItem.rarity || "None"
+          });
         }
       }
 
