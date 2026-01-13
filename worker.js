@@ -1,5 +1,6 @@
 /**
- * TORN MARKET WORKER - BATCHED & ROTATING (FIXED)
+ * TORN MARKET WORKER - BATCHED & ROTATING
+ * Accessing the URL in a browser now forces a snapshot test.
  */
 
 export default {
@@ -13,34 +14,33 @@ export default {
 
   async fetch(request, env) {
     const settings = await this.getSettings();
-    const FULL_WEBHOOK = settings.BASE_URL + "?key=" + encodeURIComponent(settings.WEBHOOK_SECRET);
-    const corsHeaders = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
-    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-    try {
-      const body = await request.json();
-      const res = await fetch(FULL_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      return new Response(await res.text(), { headers: corsHeaders });
-    } catch (e) { return new Response(e.toString(), { status: 400 }); }
+    // MANUAL TRIGGER: If you visit the URL in browser, it runs the snapshot
+    console.log("Manual browser request detected. Running snapshot...");
+    const report = await this.runAutomatedSnapshot();
+    return new Response(JSON.stringify({ status: "Manual Run Triggered", report }), {
+      headers: { "Content-Type": "application/json" }
+    });
   },
 
-  async scheduled(event, env, ctx) { ctx.waitUntil(this.runAutomatedSnapshot()); },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(this.runAutomatedSnapshot());
+  },
 
   async runAutomatedSnapshot() {
     const settings = await this.getSettings();
     const FULL_WEBHOOK = settings.BASE_URL + "?key=" + encodeURIComponent(settings.WEBHOOK_SECRET);
+    let logOutput = [];
     
     try {
       const universeRes = await fetch(FULL_WEBHOOK + "&action=getUniverse");
       const includedIds = await universeRes.json();
-      if (!Array.isArray(includedIds) || includedIds.length === 0) return;
+      if (!Array.isArray(includedIds) || includedIds.length === 0) return "No IDs found";
 
       const batchSize = 45;
       const totalItems = includedIds.length;
       const intervalIndex = Math.floor(new Date().getMinutes() / 15); 
       const startIndex = (intervalIndex * batchSize) % totalItems;
       const batch = includedIds.slice(startIndex, startIndex + batchSize);
-
-      console.log(`Interval Index: ${intervalIndex} | Start Index: ${startIndex} | Processing: ${batch.length} items`);
 
       const allData = [];
 
@@ -49,9 +49,8 @@ export default {
         const tornRes = await fetch(`https://api.torn.com/market/${itemId}?selections=itemmarket&key=${key}`);
         const tornData = await tornRes.json();
 
-        // LOG ERROR IF TORN FAILS
         if (tornData.error) {
-          console.log(`Torn Error for ${itemId}: ${tornData.error.error}`);
+          console.log(`Item ${itemId} Error: ${tornData.error.error}`);
           continue;
         }
 
@@ -71,7 +70,6 @@ export default {
             rarity: topItem.rarity || "None"
           });
         }
-        // Small 50ms delay to keep the socket alive
         await new Promise(r => setTimeout(r, 50));
       }
 
@@ -81,10 +79,15 @@ export default {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: "market", rows: allData })
         });
-        console.log(`Successfully sent ${allData.length} items to Google. Response: ${await gRes.text()}`);
-      } else {
-        console.log("No market data found for this batch. Check your API Keys.");
-      }
-    } catch (err) { console.error("Cron Error:", err.toString()); }
+        const gText = await gRes.text();
+        const successMsg = `Sent ${allData.length} items. Google says: ${gText}`;
+        console.log(successMsg);
+        return successMsg;
+      } 
+      return "Processed 0 items. Check API keys.";
+    } catch (err) { 
+      console.error("Cron Error:", err.toString()); 
+      return err.toString();
+    }
   }
 };
