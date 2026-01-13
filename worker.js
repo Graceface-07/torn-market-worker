@@ -1,93 +1,136 @@
-export default {
-  // 1. MANUAL ENTRY: Handles POST requests from your console/scripts
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    
-    // MUST MATCH Apps Script WEBHOOK_SECRET
-    const WEBHOOK_SECRET = "RICHARD_SECRET_123";
-    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzq66GAz2wKeySUopH44eVcEtQwfi2fhYKRXsppxKQLeh8vIv7FfSvZSbRCwlT1_WcE/exec"
-      + "?key=" + encodeURIComponent(WEBHOOK_SECRET);
+/**
+ * TORN MARKET & TRANSACTION WORKER
+ * Handles: 
+ * 1. Manual Buy/Sell events (via Fetch)
+ * 2. Automated Background Market Snapshots (via Scheduled)
+ */
 
-    const headers = {
-      "Content-Type": "application/json",
+export default {
+  // --- 1. THE SETTINGS ---
+  async getSettings() {
+    return {
+      // MUST match the secret in your Google Apps Script
+      WEBHOOK_SECRET: "RICHARD_SECRET_123",
+      
+      // Your Google Web App URL (without the ?key part)
+      BASE_URL: "https://script.google.com/macros/s/AKfycbzq66GAz2wKeySUopH44eVcEtQwfi2fhYKRXsppxKQLeh8vIv7FfSvZSbRCwlT1_WcE/exec",
+      
+      // Rotating Torn API Keys
+      TORN_KEYS: [
+        "gc43XVxOpCcwLnY6",
+        "rKP5EwA6DmSufqEm",
+        "8YgzsJntLW3yTboP",
+        "fiwzsFpv7BuGuTH3",
+        "3grddfsZEZsTlWBp",
+        "RQmyHvIAIuJ2iCZX"
+      ]
+    };
+  },
+
+  // --- 2. MANUAL HANDLER (POST from Console/Scripts) ---
+  async fetch(request, env) {
+    const settings = await this.getSettings();
+    const url = new URL(request.url);
+    const FULL_WEBHOOK = settings.BASE_URL + "?key=" + encodeURIComponent(settings.WEBHOOK_SECRET);
+
+    // Handle CORS pre-flight
+    const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "*"
+      "Access-Control-Allow-Headers": "*",
+      "Content-Type": "application/json"
     };
 
-    if (request.method === "OPTIONS") return new Response(null, { headers });
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-    if (path === "/event" && request.method === "POST") {
-      try {
-        const body = await request.json();
-        const res = await fetch(WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
-        });
-        const t = await res.text();
-        return new Response(JSON.stringify({ ok: res.ok, response: t }), { headers });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: "FAIL", details: String(e) }), { status: 400, headers });
-      }
+    // Status Check
+    if (request.method === "GET") {
+      return new Response(JSON.stringify({ status: "Worker Active", mode: "Cloud-Bridge" }), { headers: corsHeaders });
     }
 
-    return new Response(JSON.stringify({ status: "Worker Active" }), { headers });
+    // Process Manual POST Events
+    try {
+      const body = await request.json();
+      console.log("Relaying manual event to Google...");
+      
+      const res = await fetch(FULL_WEBHOOK, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      
+      const result = await res.text();
+      return new Response(JSON.stringify({ ok: res.ok, google_response: result }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ error: "Failed to relay", detail: e.toString() }), { status: 400, headers: corsHeaders });
+    }
   },
 
-  // 2. BACKGROUND ENTRY: Runs automatically via Cloudflare Cron Trigger
+  // --- 3. BACKGROUND HANDLER (Cron Trigger) ---
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(this.runAutomatedSnapshot(env));
+    ctx.waitUntil(this.runAutomatedSnapshot());
   },
 
-  async runAutomatedSnapshot(env) {
-    const TORN_KEYS = [
-      "gc43XVxOpCcwLnY6","rKP5EwA6DmSufqEm","8YgzsJntLW3yTboP",
-      "fiwzsFpv7BuGuTH3","3grddfsZEZsTlWBp","RQmyHvIAIuJ2iCZX"
-    ];
-    const WEBHOOK_SECRET = "RICHARD_SECRET_123";
-    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzq66GAz2wKeySUopH44eVcEtQwfi2fhYKRXsppxKQLeh8vIv7FfSvZSbRCwlT1_WcE/exec"
-      + "?key=" + encodeURIComponent(WEBHOOK_SECRET);
+  async runAutomatedSnapshot() {
+    const settings = await this.getSettings();
+    const FULL_WEBHOOK = settings.BASE_URL + "?key=" + encodeURIComponent(settings.WEBHOOK_SECRET);
+
+    console.log("Snapshot Triggered: Fetching Universe...");
 
     try {
-      // Step A: Ask Google for the list of Item IDs marked TRUE in itemuniverse
-      const uniRes = await fetch(WEBHOOK_URL + "&action=getUniverse");
-      const includedIds = await uniRes.json();
+      // Step A: Get list of item IDs to track
+      const universeRes = await fetch(FULL_WEBHOOK + "&action=getUniverse");
+      const includedIds = await universeRes.json();
 
-      if (!Array.isArray(includedIds) || includedIds.length === 0) return;
+      if (!Array.isArray(includedIds) || includedIds.length === 0) {
+        console.log("No items marked TRUE in universe. Skipping.");
+        return;
+      }
 
-      // Step B: Fetch prices from Torn for each ID
+      console.log(`Tracking ${includedIds.length} items. Fetching market data...`);
+
+      // Step B: Loop through items and fetch from Torn
       for (const itemId of includedIds) {
-        const key = TORN_KEYS[Math.floor(Math.random() * TORN_KEYS.length)];
+        // Pick a random key from the pool
+        const key = settings.TORN_KEYS[Math.floor(Math.random() * settings.TORN_KEYS.length)];
+        
         const tornRes = await fetch(`https://api.torn.com/market/${itemId}?selections=itemmarket&key=${key}`);
         const tornData = await tornRes.json();
 
         if (tornData.itemmarket && tornData.itemmarket[0]) {
           const topItem = tornData.itemmarket[0];
 
-          // Step C: Send that data to the Snapshot tab
-          await fetch(WEBHOOK_URL, {
+          // Step C: Push data to Google Snapshot
+          const payload = {
+            type: "market",
+            itemId: itemId,
+            price: topItem.cost,
+            qty: topItem.quantity,
+            uid: topItem.ID || "",
+            damage: topItem.damage || 0,
+            accuracy: topItem.accuracy || 0,
+            armor: topItem.armor || 0,
+            quality: topItem.quality || 0,
+            bonuses: topItem.bonuses || [],
+            rarity: topItem.rarity || "None"
+          };
+
+          await fetch(FULL_WEBHOOK, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              type: "market",
-              itemId: itemId,
-              price: topItem.cost,
-              qty: topItem.quantity,
-              uid: topItem.ID,
-              damage: topItem.damage || 0,
-              accuracy: topItem.accuracy || 0,
-              armor: topItem.armor || 0,
-              quality: topItem.quality || 0,
-              bonuses: topItem.bonuses || [],
-              rarity: topItem.rarity || "None"
-            })
+            body: JSON.stringify(payload)
           });
+          
+          console.log(`Logged Price for Item ID: ${itemId}`);
         }
+        
+        // Small delay to prevent hitting Google rate limits too hard
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+      
+      console.log("Snapshot Loop Complete.");
     } catch (err) {
-      console.error("Snapshot Automation Error:", err);
+      console.error("Critical Background Error:", err.toString());
     }
   }
 };
